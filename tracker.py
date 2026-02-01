@@ -21,6 +21,12 @@ class Expense(BaseModel):
     amount: float
     description: str
 
+class DeleteExpense(BaseModel):
+    date: str
+    category: str
+    amount: float
+    description: str
+
 app = FastAPI(title="Personal Expense Tracker API")
 
 # Utility: Read all expenses
@@ -75,23 +81,42 @@ def highest_lowest_expense():
     lowest = min(expenses, key=lambda x: float(x["Amount"]))
     return {"highest": highest, "lowest": lowest}
 
-# 6. Delete an Expense (match exact row)
+# 6. Delete Expense
 @app.delete("/expenses")
-def delete_expense(date: str, category: str, amount: float, description: str):
+def delete_expense(expense: DeleteExpense):
     expenses = read_expenses()
-    updated = [row for row in expenses if not (
-        row["Date"] == date and
-        row["Category"] == category and
-        float(row["Amount"]) == amount and
-        row["Description"] == description
-    )]
-    if len(updated) == len(expenses):
+
+    # Normalize inputs
+    category = expense.category.strip().lower()
+    description = expense.description.strip().lower()
+    amount = str(float(expense.amount))   # normalize 180.00 → 180.0
+
+    updated = []
+    found = False
+
+    for row in expenses:
+        if not (
+            row["Date"].strip() == expense.date and
+            row["Category"].strip().lower() == category and
+            str(float(row["Amount"])) == amount and
+            row["Description"].strip().lower() == description
+        ):
+            updated.append(row)
+        else:
+            found = True
+
+    if not found:
         raise HTTPException(status_code=404, detail="Expense not found")
-    
-    # Write updated file
+
     with open(FILENAME, mode="w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=["Date", "Category", "Amount", "Description"])
         writer.writeheader()
         writer.writerows(updated)
-    
+
     return {"message": "Expense deleted successfully"}
+
+# ...existing code...
+
+@app.get("/")
+def root():
+    return {"message": "Welcome to the Personal Expense Tracker API. Visit /docs for API documentation."}
