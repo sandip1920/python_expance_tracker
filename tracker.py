@@ -120,3 +120,4 @@ def delete_expense(expense: DeleteExpense):
 @app.get("/")
 def root():
     return {"message": "Welcome to the Personal Expense Tracker API. Visit /docs for API documentation."}
+
