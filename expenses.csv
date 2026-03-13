@@ -3,7 +3,7 @@ ID,Date,Category,Amount,Description
 3ffccf73-8759-4d11-8c8e-0adb149aee80,2025-03-15,Food,100.0,Lunch at college canteen
 42ba5b72-92f8-4dd7-bbb2-6c52a0338656,2025-03-16,Transport,50.0,Bus fare to kolkata
 e84ea2f3-512d-454a-9b26-e24e6ea86795,2025-03-19,Shopping,850.0,Bought a new shirt
-cf6a0107-2ca2-4a35-97c1-e2887b870542,2025-03-19,Bills,349.0,Mobile recharge
+cf6a0107-2ca2-4a35-97c1-e2887b870542,2025-03-19,Bill,349.0,Mobile recharge
 0a48c251-0b0e-43d9-b9b2-0884c066876c,2025-05-19,Entertainment,250.0,Movie ticket
 4f3c8896-ae32-433d-940d-bdd58e74873c,2025-05-25,Bill,800.0,Tution fee
 0cdbfc08-6413-45d7-9b5c-9458ada8a626,2025-08-21,Food,90.0,Evening snacks
@@ -13,3 +13,4 @@ cf6a0107-2ca2-4a35-97c1-e2887b870542,2025-03-19,Bills,349.0,Mobile recharge
 25a4bc3d-c99b-4e95-9ec9-e402cc9f9b93,2026-01-10,Bill,600.0,Broadband recharge
 776b7a14-f16e-40c7-b710-2148c0dba3d8,2026-01-15,Transport,2200.0,Train ticket booking
 5a0b73e7-bd34-4b31-b1fd-af8b7b2f9550,2026-02-19,Food,169.0,Dinner at cafe
+9b72e7c2-8664-4d16-b829-b8b8a6e39869,2026-03-13,Shopping,500.0,Buy a shoes 
