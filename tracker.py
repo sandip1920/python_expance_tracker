@@ -1,169 +1,209 @@
 from typing import Optional
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import csv
-import os
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel, Field, field_validator
+import csv, os, uuid
 from datetime import datetime
-import uuid
 
 FILENAME = "expenses.csv"
 
-# Ensure CSV exists
-def initialize_file():
-    if not os.path.exists(FILENAME):
-        with open(FILENAME, mode="w", newline="") as file:
-            writer = csv.writer(file)
-            writer.writerow(["ID", "Date", "Category", "Amount", "Description"])
-
-initialize_file()
-
-# Define request body using Pydantic
-class Expense(BaseModel):
-    category: str
-    amount: float
-    description: str
-
-class UpdateExpense(BaseModel):
-    id: str
-    date: str
-    category: str
-    amount: float
-    description: str
-
-
-class DeleteExpense(BaseModel):
-    id: str  # Delete by unique ID
-
+# init file
+if not os.path.exists(FILENAME):
+    with open(FILENAME, "w", newline="") as f:
+        csv.writer(f).writerow(["id", "date", "category", "amount", "description"])
 
 app = FastAPI(title="Personal Expense Tracker API")
 
-# Utility: Read all expenses
-def read_expenses():
-    expenses = []
-    with open(FILENAME, mode="r") as file:
-        reader = csv.DictReader(file)
-        for row in reader:
-            expenses.append(row)
-    return expenses
+# models
+class Expense(BaseModel):
+    date: str
+    category: str = Field(min_length=2, max_length=50)
+    amount: float = Field(gt=0)
+    description: str = Field(min_length=2, max_length=200)
 
-# Utility: Write new expense
-def write_expense(expense: Expense):
-    expense_id = str(uuid.uuid4())  # generate unique ID
-    with open(FILENAME, mode="a", newline="") as file:
-        writer = csv.writer(file)
-        writer.writerow([
-            expense_id,
-            datetime.now().strftime("%Y-%m-%d"),
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, v):
+        try:
+            return datetime.strptime(v, "%Y-%m-%d").strftime("%Y-%m-%d")
+        except:
+            raise ValueError("Date must be YYYY-MM-DD")
+
+    @field_validator("category", "description")
+    @classmethod
+    def normalize(cls, v):
+        return v.strip().lower()
+
+class UpdateExpense(Expense):
+    pass
+
+# utils
+def read_expenses():
+    with open(FILENAME, "r") as f:
+        return list(csv.DictReader(f))
+
+def write_all(expenses):
+    with open(FILENAME, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["id", "date", "category", "amount", "description"])
+        writer.writeheader()
+        writer.writerows(expenses)
+
+def safe_float(v):
+    try:
+        return float(v)
+    except:
+        return 0.0
+
+# routes
+
+# add
+@app.post("/expenses")
+def add_expense(expense: Expense):
+    eid = str(uuid.uuid4())
+
+    with open(FILENAME, "a", newline="") as f:
+        csv.writer(f).writerow([
+            eid,
+            expense.date,
             expense.category,
             expense.amount,
             expense.description
         ])
-    return expense_id
 
-# 1. Add Expense
-@app.post("/expenses")
-def add_expense(date: str, category: str, amount: float, description: str):
-    expense_id = str(uuid.uuid4())  # unique ID
-    with open(FILENAME, mode="a", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=["ID", "Date", "Category", "Amount", "Description"])
-        writer.writerow({
-            "ID": expense_id,
-            "Date": date,
-            "Category": category,
-            "Amount": amount,
-            "Description": description
-        })
-    return {"message": "Expense added successfully", "id": expense_id}
+    return {"message": "added", "id": eid}
 
-# 2. View All Expenses
+# get all (filter + pagination)
 @app.get("/expenses")
-def get_expenses():
-    return read_expenses()
+def get_expenses(
+    category: Optional[str] = None,
+    min_amount: Optional[float] = None,
+    max_amount: Optional[float] = None,
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0)
+):
+    data = read_expenses()
 
-# 3. Search Expenses by Category
-@app.get("/expenses/category/{category}")
-def get_expenses_by_category(category: str):
-    expenses = [exp for exp in read_expenses() if exp["Category"].lower() == category.lower()]
-    if not expenses:
-        raise HTTPException(status_code=404, detail="No expenses found in this category")
-    return expenses
+    # category filter
+    if category:
+        category = category.lower().strip()
+        if category != "all":
+            data = [e for e in data if e["category"].lower() == category]
 
-# 4. Monthly Summary
-@app.get("/expenses/summary/{month}")
-def monthly_summary(month: str):  # format: YYYY-MM
-    expenses = [exp for exp in read_expenses() if exp["Date"].startswith(month)]
-    total = sum(float(exp["Amount"]) for exp in expenses)
-    return {"month": month, "total": total, "expenses": expenses}
+    # amount filters
+    if min_amount is not None:
+        data = [e for e in data if safe_float(e["amount"]) >= min_amount]
 
-# 5. Highest & Lowest Expense
+    if max_amount is not None:
+        data = [e for e in data if safe_float(e["amount"]) <= max_amount]
+
+    return data[offset: offset + limit]
+
+# get by id
+@app.get("/expenses/{id}")
+def get_one(id: str):
+    for e in read_expenses():
+        if e["id"] == id:
+            return e
+    raise HTTPException(404, "not found")
+
+# stats
 @app.get("/expenses/stats")
-def highest_lowest_expense():
-    expenses = read_expenses()
-    if not expenses:
-        raise HTTPException(status_code=404, detail="No expenses recorded")
-    highest = max(expenses, key=lambda x: float(x["Amount"]))
-    lowest = min(expenses, key=lambda x: float(x["Amount"]))
-    return {"highest": highest, "lowest": lowest}
+def stats():
+    data = read_expenses()
 
-# 6. Update Expense by ID
-@app.put("/expenses")
-def update_expense(expense: UpdateExpense):
+    if not data:
+        raise HTTPException(404, "no data")
+
+    highest = max(data, key=lambda x: safe_float(x["amount"]))
+    lowest = min(data, key=lambda x: safe_float(x["amount"]))
+    average = sum(safe_float(e["amount"]) for e in data) / len(data)
+    total = sum(safe_float(e["amount"]) for e in data)
+
+    return {
+        "highest": highest,
+        "lowest": lowest,
+        "average": average,
+        "total": total,
+        "count": len(data)
+    }
+
+# monthly summary
+@app.get("/expenses/summary/{month}")
+def monthly_summary(month: str):
     try:
-        # Validate date
-        exp_date = datetime.strptime(expense.date, "%Y-%m-%d").strftime("%Y-%m-%d")
+        datetime.strptime(month, "%Y-%m")
+    except:
+        raise HTTPException(400, "invalid format YYYY-MM")
 
-        expenses = read_expenses()  # list of dicts
-        found = False
+    data = read_expenses()
+    filtered = [e for e in data if e["date"].startswith(month)]
+    total = sum(safe_float(e["amount"]) for e in filtered)
 
-        for row in expenses:
-            if row["ID"] == expense.id:
-                row["Date"] = exp_date
-                row["Category"] = expense.category.strip()
-                row["Amount"] = str(expense.amount)
-                row["Description"] = expense.description.strip()
-                found = True
-                break  # IDs are unique
-
-        if not found:
-            raise HTTPException(status_code=404, detail="Expense not found")
-
-        # Write updated list back to CSV
-        with open(FILENAME, mode="w", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=["ID", "Date", "Category", "Amount", "Description"])
-            writer.writeheader()
-            writer.writerows(expenses)
-
-        return {"message": "Expense updated successfully"}
-
-    except Exception as e:
-      raise HTTPException(status_code=500, detail=f"Server error: {e}")
+    return {"month": month, "total": total, "expenses": filtered}
 
 
-# 7. Delete Expense by ID
-@app.delete("/expenses")
-def delete_expense(expense: DeleteExpense):
-    expenses = read_expenses()
-    updated = []
+# update
+@app.put("/expenses/{id}")
+def update_expense(id: str, expense: UpdateExpense):
+    data = read_expenses()
     found = False
 
-    for row in expenses:
-        if row.get("ID") == expense.id:
+    for e in data:
+        if e["id"] == id:
+            e["date"] = expense.date
+            e["category"] = expense.category
+            e["amount"] = str(expense.amount)
+            e["description"] = expense.description
             found = True
-            continue  # skip this row (delete)
-        updated.append(row)
+            break
 
     if not found:
-        raise HTTPException(status_code=404, detail="Expense not found")
+        raise HTTPException(404, "not found")
 
-    # Write updated CSV
-    with open(FILENAME, mode="w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=["ID", "Date", "Category", "Amount", "Description"])
-        writer.writeheader()
-        writer.writerows(updated)
+    write_all(data)
+    return {"message": "Expense updated with id " + id}
 
-    return {"message": "Expense deleted successfully"}
+@app.get("/dashboard")
+def dashboard():
+    data = read_expenses()
 
-# Root endpoint
+    if not data:
+        return {"message": "no data"}
+
+    total = sum(safe_float(e["amount"]) for e in data)
+    count = len(data)
+    avg = total / count
+
+    highest = max(data, key=lambda x: safe_float(x["amount"]))
+    lowest = min(data, key=lambda x: safe_float(x["amount"]))
+
+    # category breakdown
+    categories = {}
+    for e in data:
+        cat = e["category"]
+        categories[cat] = categories.get(cat, 0) + safe_float(e["amount"])
+
+    return {
+        "total": total,
+        "count": count,
+        "average": avg,
+        "highest": highest,
+        "lowest": lowest,
+        "category_breakdown": categories
+    }
+
+# delete
+@app.delete("/expenses/{id}")
+def delete_expense(id: str):
+    data = read_expenses()
+    new_data = [e for e in data if e["id"] != id]
+
+    if len(new_data) == len(data):
+        raise HTTPException(404, "not found")
+
+    write_all(new_data)
+    return {"message": "Expense deleted with id " + id}
+
+# root
 @app.get("/")
 def root():
-    return {"message": "Welcome to the Personal Expense Tracker API. Visit /docs for API documentation."}
+    return {"message": "Expense Tracker API"}
