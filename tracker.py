@@ -1,14 +1,27 @@
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import uuid
 from datetime import datetime
 import models, schemas
 from database import SessionLocal, engine
+from auth.routes import router as auth_router
+from auth.dependencies import get_current_user
 
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Personal Expense Tracker API")
+
+app.include_router(auth_router, prefix="/auth", tags=["Auth"])
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # change in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # DB Dependency
 def get_db():
@@ -26,7 +39,7 @@ def safe_float(v):
 
 # add
 @app.post("/expenses")
-def add_expense(expense: schemas.Expense, db: Session = Depends(get_db)):
+def add_expense(expense: schemas.Expense, db: Session = Depends(get_db), user = Depends(get_current_user)):
     eid = str(uuid.uuid4())
 
     new_expense = models.Expense(
@@ -34,7 +47,8 @@ def add_expense(expense: schemas.Expense, db: Session = Depends(get_db)):
         date=expense.date,
         category=expense.category,
         amount=expense.amount,
-        description=expense.description
+        description=expense.description,
+        user_id=user["user_id"]
     )
 
     db.add(new_expense)
@@ -50,11 +64,12 @@ def get_expenses(
     max_amount: Optional[float] = None,
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user = Depends(get_current_user)
 ):
-    data = db.query(models.Expense).all()
+    data = db.query(models.Expense).filter(models.Expense.user_id == user["user_id"]).all()
 
-    # convert to dict (same as CSV)
+    
     data = [e.__dict__ for e in data]
     for e in data:
         e.pop("_sa_instance_state", None)
@@ -74,8 +89,8 @@ def get_expenses(
 
 # stats
 @app.get("/expenses/stats")
-def stats(db: Session = Depends(get_db)):
-    data = db.query(models.Expense).all()
+def stats(db: Session = Depends(get_db), user = Depends(get_current_user)):
+    data = db.query(models.Expense).filter(models.Expense.user_id == user["user_id"]).all()
 
     if not data:
         raise HTTPException(404, "no data")
@@ -100,7 +115,7 @@ def stats(db: Session = Depends(get_db)):
 
 # get by id
 @app.get("/expenses/{id}")
-def get_one(id: str, db: Session = Depends(get_db)):
+def get_one(id: str, db: Session = Depends(get_db), user = Depends(get_current_user)):
     e = db.query(models.Expense).filter(models.Expense.id == id).first()
     if not e:
         raise HTTPException(404, "not found")
@@ -112,13 +127,13 @@ def get_one(id: str, db: Session = Depends(get_db)):
 
 # monthly summary
 @app.get("/expenses/summary/{month}")
-def monthly_summary(month: str, db: Session = Depends(get_db)):
+def monthly_summary(month: str, db: Session = Depends(get_db), user = Depends(get_current_user)):
     try:
         datetime.strptime(month, "%Y-%m")
     except:
         raise HTTPException(400, "invalid format YYYY-MM")
 
-    data = db.query(models.Expense).all()
+    data = db.query(models.Expense).filter(models.Expense.user_id == user["user_id"]).all()
     data = [e.__dict__ for e in data]
     for e in data:
         e.pop("_sa_instance_state", None)
@@ -130,7 +145,7 @@ def monthly_summary(month: str, db: Session = Depends(get_db)):
 
 # update
 @app.put("/expenses/{id}")
-def update_expense(id: str, expense: schemas.UpdateExpense, db: Session = Depends(get_db)):
+def update_expense(id: str, expense: schemas.UpdateExpense, db: Session = Depends(get_db), user = Depends(get_current_user)):
     e = db.query(models.Expense).filter(models.Expense.id == id).first()
 
     if not e:
@@ -147,8 +162,8 @@ def update_expense(id: str, expense: schemas.UpdateExpense, db: Session = Depend
 
 # dashboard
 @app.get("/dashboard")
-def dashboard(db: Session = Depends(get_db)):
-    data = db.query(models.Expense).all()
+def dashboard(db: Session = Depends(get_db), user = Depends(get_current_user)):
+    data = db.query(models.Expense).filter(models.Expense.user_id == user["user_id"]).all()
 
     if not data:
         return {"message": "no data"}
@@ -180,7 +195,7 @@ def dashboard(db: Session = Depends(get_db)):
 
 # delete
 @app.delete("/expenses/{id}")
-def delete_expense(id: str, db: Session = Depends(get_db)):
+def delete_expense(id: str, db: Session = Depends(get_db), user = Depends(get_current_user)):
     e = db.query(models.Expense).filter(models.Expense.id == id).first()
 
     if not e:
