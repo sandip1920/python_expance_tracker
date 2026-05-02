@@ -3,7 +3,6 @@ from fastapi import FastAPI, HTTPException, Query, Depends
 from sqlalchemy.orm import Session
 import uuid
 from datetime import datetime
-
 import models, schemas
 from database import SessionLocal, engine
 
