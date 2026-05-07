@@ -4,10 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import uuid
 from datetime import datetime
-import models, schemas
-from database import SessionLocal, engine
-from auth.routes import router as auth_router
-from auth.dependencies import get_current_user
+from app import models, schemas
+from app.database import SessionLocal, engine 
+from app.auth.routes import router as auth_router
+from app.auth.dependencies import get_current_user
+from app.auth.utils import verify_password
 
 models.Base.metadata.create_all(bind=engine)
 
