@@ -15,7 +15,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Hash password
 def hash_password(password: str):
-    password = password[:72]  # bcrypt limit
+    password = password[:72] 
     return pwd_context.hash(password)
 
 
